@@ -1,6 +1,7 @@
-import React, { useState, useContext, useEffect } from "react";
+import React, { useState, useContext, useEffect, useCallback } from "react";
 import "./styles/index.css";
 //import "./styles/global.css"; // Ensure global styles are applied
+import { useRegisterSW } from 'virtual:pwa-register/react';
 import Navbar from "./components/Navigation/Navbar";
 import BulkSend from "./views/BulkSend";
 import LiveCapture from "./views/LiveCapture";
@@ -18,6 +19,13 @@ import ToothPaste from "./assets/ToothPaste.png";
 import { Grid } from "@react-three/drei";
 
 function App() {
+    const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW({
+        onRegisteredSW(_swUrl, registration) {
+            // Force an update check every time the app opens
+            registration?.update();
+        },
+    });
+    const [isReloadingUpdate, setIsReloadingUpdate] = useState(false);
     const [showOverlay, setShowOverlay] = useState(false);
     const [showNavbar, setshowNavbar] = useState(true);
     const [activeView, setActiveView] = useState("live"); // control view here
@@ -38,6 +46,28 @@ function App() {
         setActiveOverlay('quickstart');
       }
     }, []);
+
+    const handleReloadUpdate = useCallback(() => {
+      if (isReloadingUpdate) return;
+      setIsReloadingUpdate(true);
+
+      let hasReloaded = false;
+      const reloadOnce = () => {
+        if (hasReloaded) return;
+        hasReloaded = true;
+        window.location.reload();
+      };
+
+      navigator.serviceWorker?.addEventListener('controllerchange', reloadOnce, { once: true });
+
+      try {
+        updateServiceWorker(true);
+      } catch (error) {
+        console.error('[App] Failed to activate service worker update:', error);
+      }
+
+      window.setTimeout(reloadOnce, 1500);
+    }, [isReloadingUpdate, updateServiceWorker]);
 
     const renderView = () => {
         switch (activeView) {
@@ -83,11 +113,25 @@ function App() {
 
             {/* Overlay */}
             {ActiveOverlay && (
-              <ActiveOverlay 
-                {...overlayProps} 
+              <ActiveOverlay
+                {...overlayProps}
                 onChangeOverlay={setActiveOverlay}
                 activeView={activeView}
               />
+            )}
+
+            {/* PWA update toast */}
+            {needRefresh && (
+              <div className="fixed bottom-4 right-4 bg-ink border border-primary rounded-lg p-3 flex items-center gap-3 z-50 shadow-lg">
+                <span className="text-text text-sm">Update available</span>
+                <button
+                  onClick={handleReloadUpdate}
+                  disabled={isReloadingUpdate}
+                  className="text-primary text-sm font-semibold hover:text-text transition-colors"
+                >
+                  {isReloadingUpdate ? 'Reloading...' : 'Reload'}
+                </button>
+              </div>
             )}
           </div>
         </BLEProvider>

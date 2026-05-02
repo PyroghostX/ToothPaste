@@ -8,6 +8,7 @@
 #include "IDFHIDConsumerControl.h"
 #include "IDFHIDSystemControl.h"
 #include "SerialDebug.h"
+#include <algorithm>
 
 // TODO: ESP_LOGI("HID", "Interface 1 report complete"); this string gets stuck reports only on interface 0
 
@@ -24,6 +25,7 @@
 typedef struct {
   char data[MAX_QUEUE_STRING_LEN];
   uint8_t length;
+  uint8_t delayMs; // Per-character delay; set from slowMode flag in packet
 } QueueStringItem;
 
 QueueHandle_t reportQueue = xQueueCreate(18, sizeof(QueueStringItem)); // Queue to manage HID inputs
@@ -48,41 +50,45 @@ void hidSetup()
   startKeyboardTask(); // Start the RTOS keyboard task
 }
 
-// Send a string with a delay between each character (crude implementation of alternative polling rates since ESPHID doesn't expose this)
+// Send a string with a delay between each character.
+// press() and release() are called separately with a delay between them so
+// the USB host gets at least one full poll interval to see each report.
+// Calling write()/print() sends both back-to-back with no gap, causing drops.
 size_t sendStringSlow(const char *str, int delayms) {
   size_t sentCount = 0;
+  const int holdMs  = delayms / 2;   // time key is held down
+  const int gapMs   = delayms - holdMs; // gap before next keypress
 
   for (size_t i = 0; str[i] != '\0'; i++) {
-    char ch = str[i];
-
-    keyboard0.print(ch);  // Send single character
-    //keyboard1.print(ch);  // Send single character
-
-    vTaskDelay(pdMS_TO_TICKS(delayms)); // Delay between characters
+    keyboard0.press((uint8_t)str[i]);
+    vTaskDelay(pdMS_TO_TICKS(holdMs));
+    keyboard0.releaseAll();
+    vTaskDelay(pdMS_TO_TICKS(gapMs));
     sentCount++;
-    keyboard0.releaseAll(); // Release all keys to avoid sticky keys
   }
 
   return sentCount;
 }
 
 // Queue a string to be sent via HID
-void sendString(const char *str, bool slowMode)
+bool sendString(const char *str, bool slowMode)
 {
   QueueStringItem item;
   strncpy(item.data, str, MAX_QUEUE_STRING_LEN - 1);
   item.data[MAX_QUEUE_STRING_LEN - 1] = '\0';
-  xQueueSend(reportQueue, &item, 0);
+  item.delayMs = slowMode ? SLOWMODE_DELAY_MS : FASTMODE_DELAY_MS;
+  return xQueueSend(reportQueue, &item, pdMS_TO_TICKS(50)) == pdTRUE;
 }
 
 // Queue a string with specified length
-void sendString(const char *str, uint8_t stringLen, bool slowMode)
+bool sendString(const char *str, uint8_t stringLen, bool slowMode)
 {
   QueueStringItem item;
-  size_t copyLen = stringLen;
+  size_t copyLen = std::min<size_t>(stringLen, MAX_QUEUE_STRING_LEN - 1);
   memcpy(item.data, str, copyLen);
   item.data[copyLen] = '\0';
-  xQueueSend(reportQueue, &item, 0);
+  item.delayMs = slowMode ? SLOWMODE_DELAY_MS : FASTMODE_DELAY_MS;
+  return xQueueSend(reportQueue, &item, pdMS_TO_TICKS(50)) == pdTRUE;
 }
 
 // Print a toothpaste_KeyboardPacket's message
@@ -233,7 +239,7 @@ void keyboardTask(void* params)
   
   while (keyboardStarted) {
     if(xQueueReceive(reportQueue, &item, portMAX_DELAY) == pdTRUE){
-      sendStringSlow(item.data, SLOWMODE_DELAY_MS);
+      sendStringSlow(item.data, item.delayMs);
     }
   }
   // Task exits gracefully when flag is set to false

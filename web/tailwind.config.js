@@ -9,6 +9,13 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
     "./node_modules/@material-tailwind/react/**/*.{js,ts,jsx,tsx}",
   ],
+  blocklist: [
+    "[&_data-slot=icon]:h-5",
+    "[&_data-slot=icon]:w-5",
+    "[&_data-slot=icon]:cursor-pointer",
+    "[&_data-slot=icon]:text-inherit",
+    "[&_data-slot=placeholder]:text-foreground/60",
+  ],
 
   // Tailwind CSS Config
   theme: {

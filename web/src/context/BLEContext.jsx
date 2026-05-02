@@ -9,7 +9,7 @@ import { keyExists, loadBase64 } from "../services/localSecurity/EncryptedStorag
 import { ECDHContext } from "./ECDHContext.jsx";
 import { createUnencryptedPacket, unpackResponsePacket } from "../services/packetService/packetFunctions.js";
 import { PacketQueue } from "../services/packetService/PacketQueue.js";
-import { create, toBinary, fromBinary } from "@bufbuild/protobuf";
+import { toBinary } from "@bufbuild/protobuf";
 
 import * as ToothPacketPB from '../services/packetService/toothpacket/toothpacket_pb.js';
 
@@ -26,6 +26,7 @@ export const ConnectionStatus = {
 };
 
 export function BLEProvider({ children }) {
+    const ACK_TIMEOUT_MS = 5000;
 
     // Constants
     const serviceUUID = "19b10000-e8f2-537e-4f6c-d104768a1214"; // ClipBoard service UUID from example
@@ -43,7 +44,39 @@ export function BLEProvider({ children }) {
 
     
     const { loadKeys, createEncryptedPackets } = useContext(ECDHContext);
-    const readyToReceive = useRef({ promise: null, resolve: null });
+    const readyToReceive = useRef({ waiters: [], signals: 0 });
+
+    const waitForReadySignal = () => {
+        if (readyToReceive.current.signals > 0) {
+            readyToReceive.current.signals -= 1;
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve, reject) => {
+            const waiter = {
+                resolve: () => {
+                    clearTimeout(timeoutId);
+                    resolve();
+                },
+            };
+            const timeoutId = setTimeout(() => {
+                readyToReceive.current.waiters = readyToReceive.current.waiters.filter((pendingWaiter) => pendingWaiter !== waiter);
+                reject(new Error("Timed out waiting for device ready signal"));
+            }, ACK_TIMEOUT_MS);
+
+            readyToReceive.current.waiters.push(waiter);
+        });
+    };
+
+    const resolveReadySignal = () => {
+        const waiter = readyToReceive.current.waiters.shift();
+        if (waiter) {
+            waiter.resolve();
+            return;
+        }
+
+        readyToReceive.current.signals += 1;
+    };
 
     // Send a text string as a byte array without encryption
     const sendUnencrypted = async (inputString) => {
@@ -59,7 +92,7 @@ export function BLEProvider({ children }) {
     // inputPayload can be a single payload or an array of payloads
     // Uses a FIFO queue where encryption produces packets and sending consumes them concurrently
     // (encoding into protobuf must be done by the calling function)
-    const sendEncrypted = async (inputPayload, prefix=0) => {
+    const sendEncrypted = async (inputPayload, prefix=0, slowMode=true, requireAck=false) => {
         if (!pktCharacteristic) return;
 
         // Create a packet queue to hold encrypted packets before sending
@@ -73,7 +106,7 @@ export function BLEProvider({ children }) {
             const producerTask = (async () => {
                 try {
                     for (const payload of payloads) {
-                        for await (const packet of createEncryptedPackets(0, payload, true, prefix)) {
+                        for await (const packet of createEncryptedPackets(0, payload, slowMode, prefix)) {
                             packetQueue.enqueue(packet);
                         }
                     }
@@ -87,11 +120,16 @@ export function BLEProvider({ children }) {
                 while (true) {
                     const packet = await packetQueue.dequeue();
                     if (packet === null) break;
-                    
+                    const ackPromise = requireAck ? waitForReadySignal() : null;
+
                     // Each packet is a ToothPaste DataPacket object with encryptedData component
                     await pktCharacteristic.writeValueWithoutResponse(
                         toBinary(ToothPacketPB.DataPacketSchema, packet)
                     );
+
+                    if (ackPromise) {
+                        await ackPromise;
+                    }
                 }
             })();
 
@@ -129,11 +167,13 @@ export function BLEProvider({ children }) {
                 
                 // Convert to Uint8Array and log in base64
                 const bytesArray = new Uint8Array(responsePacketBytes.buffer, responsePacketBytes.byteOffset, responsePacketBytes.byteLength);
-                const base64String = btoa(String.fromCharCode.apply(null, bytesArray));
-
                 var responsePacket = unpackResponsePacket(bytesArray);
                 
-                if (responsePacket.responseType === ToothPacketPB.ResponsePacket_ResponseType.CHALLENGE) {
+                if (responsePacket.responseType === ToothPacketPB.ResponsePacket_ResponseType.KEEPALIVE) {
+                    resolveReadySignal();
+                }
+
+                else if (responsePacket.responseType === ToothPacketPB.ResponsePacket_ResponseType.CHALLENGE) {
                         await loadKeys(deviceObj.macAddress, responsePacket.challengeData);
                     setStatus(ConnectionStatus.ready);
                 }
@@ -152,14 +192,6 @@ export function BLEProvider({ children }) {
                 if (!isVersionCompatible(responsePacket.firmwareVersion, supportedFirmwareVersions)) {
                     console.error("Incompatible firmware version:", responsePacket.firmwareVersion);
                     setStatus(ConnectionStatus.unsupported);
-                }
-
-  
-                // If there is a promise to be resolved, resolve it
-                if (readyToReceive.current.resolve) {
-                    readyToReceive.current.resolve(); // Signal the next packet can send
-                    readyToReceive.current.promise = null; // Reset
-                    readyToReceive.current.resolve = null;
                 }
             });
         } catch (err) {

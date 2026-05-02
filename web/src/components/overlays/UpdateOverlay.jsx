@@ -27,10 +27,11 @@ export default function UpdateController({ onChangeOverlay }) {
   const transportRef = useRef(null);
 
 
+  const base = import.meta.env.BASE_URL;
   const boardUrls = {
-    "4M Flash (Supermini)": "/ToothPasteFirmware_4M.bin",
-    "8M Flash Devkit": "/ToothPasteFirmware_8M_Dev.bin",
-    "8M Flash ToothPaste PCBv1": "/ToothPasteFirmware_8M_PCBv1.bin",
+    "4M Flash (Supermini)": `${base}ToothPasteFirmware_4M.bin`,
+    "8M Flash Devkit": `${base}ToothPasteFirmware_8M_Dev.bin`,
+    "8M Flash ToothPaste PCBv1": `${base}ToothPasteFirmware_8M_PCBv1.bin`,
   };
 
   const handleBoardSelect = (board) => {

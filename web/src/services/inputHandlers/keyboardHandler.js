@@ -1,4 +1,4 @@
-import { createKeyboardStream, createKeyCodePacket } from '../packetService/packetFunctions';
+import { createKeyboardStream, createKeyCodePacket, normalizeKeyboardText } from '../packetService/packetFunctions';
 import { HIDMap } from './HIDMap';
 import { createConsumerControlPacket } from '../packetService/packetFunctions';
 
@@ -12,10 +12,18 @@ export const keyboardHandler = {
      * Send keyboard string input
      * @param {string} input - Text to send
      * @param {Function} sendEncrypted - Function to send encrypted packets
+     * @param {number} chunkDelayMs - Delay in ms between 100-char chunks (0 = no delay)
+     * @param {boolean} slowMode - If true, firmware uses 12ms/char; false = 5ms/char
      */
-    sendKeyboardString(input, sendEncrypted) {
+    async sendKeyboardString(input, sendEncrypted, chunkDelayMs = 0, slowMode = false) {
         const packets = createKeyboardStream(input);
-        sendEncrypted(packets);
+        for (let i = 0; i < packets.length; i++) {
+            await sendEncrypted(packets[i], 0, slowMode, true);
+            if (chunkDelayMs > 0 && i < packets.length - 1) {
+                await new Promise(r => setTimeout(r, chunkDelayMs));
+            }
+        }
+        return normalizeKeyboardText(input);
     },
 
     /**

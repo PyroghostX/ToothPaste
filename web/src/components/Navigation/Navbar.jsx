@@ -291,7 +291,7 @@ export default function Navbar({ onChangeOverlay, onNavigate, activeView, active
         <div id="navbar" className="w-full bg-ink text-white">
             <div className="relative flex justify-between h-24 items-center px-4">
                 {/* Left: Logo */}
-                <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setIsOpen(false)}>
+                <div className="flex items-center space-x-3 cursor-pointer" onClick={() => { setIsOpen(false); onNavigate(activeView === 'live' ? 'paste' : 'live'); }}>
                     <img src={ToothPaste} alt="ToothPaste" className="h-10 w-10" />
                     <Typography type="h3" className="hidden md:block select-none font-header font-bold text-text">
                         ToothPaste
@@ -335,6 +335,7 @@ export default function Navbar({ onChangeOverlay, onNavigate, activeView, active
                         >
                             <QuestionMarkCircleIcon className="h-5 w-5" />
                             <Typography className="font-header">About</Typography>
+                            <Typography className="font-header text-dust opacity-60 text-xs">v{__APP_VERSION__}</Typography>
                         </button>
                     </div>
 
@@ -449,6 +450,7 @@ export default function Navbar({ onChangeOverlay, onNavigate, activeView, active
                         >
                             <QuestionMarkCircleIcon className="h-5 w-5" />
                             <span>About</span>
+                            <span className="text-dust opacity-60 text-xs">v{__APP_VERSION__}</span>
                         </button>
                     </div>
 

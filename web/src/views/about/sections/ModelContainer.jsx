@@ -125,7 +125,7 @@ export default function ModelContainer({ currentSlide, scrollDeltaRef, isMobile 
                         castShadow
                     />
                     <Model 
-                        url="/ToothPaste.glb" 
+                        url={`${import.meta.env.BASE_URL}ToothPaste.glb`}
                         scrollDeltaRef={scrollDeltaRef}
                         translateXPercent={slideConfig.translateXPercent}
                         translateYPercent={slideConfig.translateYPercent}

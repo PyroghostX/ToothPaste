@@ -1,0 +1,11 @@
+From this repo, you were likely building the React/Vite site into static files, then copying the generated dist folder contents into your website folder.
+
+Run from the repo root:
+
+cd web
+npm.cmd install
+npm.cmd run build
+After it finishes, the files to paste/upload are in:
+
+web/dist
+Copy the contents of web/dist, not the dist folder itself, into your website/public folder.

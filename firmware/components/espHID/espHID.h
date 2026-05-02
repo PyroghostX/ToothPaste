@@ -8,7 +8,8 @@
 #define USB_PRODUCT        "ToothPaste Receiver"
 #define USB_SERIAL         "" // Empty string for MAC adddress
 
-#define SLOWMODE_DELAY_MS 5
+#define FASTMODE_DELAY_MS 5   // 5ms per character – fast, may miss chars on slow hosts
+#define SLOWMODE_DELAY_MS 12  // 12ms per character – reliable on most USB hosts
 
 #ifndef HID_H
 #define HID_H
@@ -17,8 +18,8 @@
 void hidSetup();
 
 // Keyboard String Functions
-void sendString(const char* str, bool slowMode = true);
-void sendString(const char *str, uint8_t stringLen, bool slowMode);
+bool sendString(const char* str, bool slowMode = true);
+bool sendString(const char *str, uint8_t stringLen, bool slowMode);
 void sendStringDelay(void *arg, int delay);
 
 // Keycode Functions

@@ -1,6 +1,83 @@
 import { create, toBinary, fromBinary } from "@bufbuild/protobuf";
 import * as ToothPacketPB from './toothpacket/toothpacket_pb.js';
 
+const HID_SAFE_REPLACEMENTS = new Map([
+    ['\u2018', "'"],
+    ['\u2019', "'"],
+    ['\u201A', "'"],
+    ['\u201B', "'"],
+    ['\u2032', "'"],
+    ['\u201C', '"'],
+    ['\u201D', '"'],
+    ['\u201E', '"'],
+    ['\u201F', '"'],
+    ['\u2033', '"'],
+    ['\u2013', '-'],
+    ['\u2014', '--'],
+    ['\u2015', '--'],
+    ['\u2026', '...'],
+    ['\u00A0', ' '],
+    ['\u2000', ' '],
+    ['\u2001', ' '],
+    ['\u2002', ' '],
+    ['\u2003', ' '],
+    ['\u2004', ' '],
+    ['\u2005', ' '],
+    ['\u2006', ' '],
+    ['\u2007', ' '],
+    ['\u2008', ' '],
+    ['\u2009', ' '],
+    ['\u200A', ' '],
+    ['\u202F', ' '],
+    ['\u205F', ' '],
+    ['\u3000', ' '],
+    ['\u200B', ''],
+    ['\u200C', ''],
+    ['\u200D', ''],
+    ['\u2060', ''],
+    ['\uFEFF', ''],
+]);
+
+const MAX_KEYBOARD_PAYLOAD_BYTES = 190;
+
+export function normalizeKeyboardText(input) {
+    if (typeof input !== 'string' || input.length === 0) {
+        return '';
+    }
+
+    let normalized = input
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n');
+
+    for (const [from, to] of HID_SAFE_REPLACEMENTS.entries()) {
+        normalized = normalized.split(from).join(to);
+    }
+
+    normalized = normalized.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+
+    return Array.from(normalized, (char) => {
+        const code = char.charCodeAt(0);
+        if (code === 9 || code === 10 || code === 8) {
+            return char;
+        }
+        return code >= 32 && code <= 126 ? char : '?';
+    }).join('');
+}
+
+function buildKeyboardPacket(keyString) {
+    const keyboardPacket = create(ToothPacketPB.KeyboardPacketSchema, {});
+    keyboardPacket.message = keyString;
+    keyboardPacket.length = keyString.length;
+
+    return create(ToothPacketPB.EncryptedDataSchema, {
+        packetType: ToothPacketPB.EncryptedData_PacketType.KEYBOARD_STRING,
+        packetData: {
+            case: "keyboardPacket",
+            value: keyboardPacket,
+        },
+    });
+}
+
 // Create an unencrypted DataPacket from an input string
 export function createUnencryptedPacket(inputString) {
     const encoder = new TextEncoder();
@@ -72,49 +149,32 @@ export function createMouseStream(frames, leftClick = false, rightClick = false,
 
 // Return an EncryptedData packet containing a KeyboardPacket
 export function createKeyboardPacket(keyString) {
-
-    const keyboardPacket = create(ToothPacketPB.KeyboardPacketSchema, {});
-    keyboardPacket.message = keyString;
-    keyboardPacket.length = keyString.length;
-
-    const encryptedPacket = create(ToothPacketPB.EncryptedDataSchema, {
-        packetType: ToothPacketPB.EncryptedData_PacketType.KEYBOARD_STRING,
-        packetData: {
-        case: "keyboardPacket",
-        value: keyboardPacket,
-        },
-    });
-
-
-    return encryptedPacket
+    return buildKeyboardPacket(normalizeKeyboardText(keyString));
 }
 
 export function createKeyboardStream(keyStrings) {
-    // Handle both single string and array of strings
-    let fullString = Array.isArray(keyStrings) ? keyStrings.join('') : keyStrings;
-    
+    const fullString = normalizeKeyboardText(Array.isArray(keyStrings) ? keyStrings.join('') : keyStrings);
     const packets = [];
-    const chunkSize = 100; // Max characters per packet
-    
-    // Split string into chunks and create a packet for each
-    for (let i = 0; i < fullString.length; i += chunkSize) {
-        const chunk = fullString.substring(i, i + chunkSize);
-        
-        const keyboardPacket = create(ToothPacketPB.KeyboardPacketSchema, {});
-        keyboardPacket.message = chunk;
-        keyboardPacket.length = chunk.length;
-        
-        const encryptedPacket = create(ToothPacketPB.EncryptedDataSchema, {
-            packetType: ToothPacketPB.EncryptedData_PacketType.KEYBOARD_STRING,
-            packetData: {
-                case: "keyboardPacket",
-                value: keyboardPacket,
-            },
-        });
-        
-        packets.push(encryptedPacket);
+
+    let chunkStart = 0;
+    while (chunkStart < fullString.length) {
+        let chunkEnd = chunkStart + 1;
+        let lastGoodEnd = chunkEnd;
+
+        while (chunkEnd <= fullString.length) {
+            const candidatePacket = buildKeyboardPacket(fullString.slice(chunkStart, chunkEnd));
+            const candidateSize = toBinary(ToothPacketPB.EncryptedDataSchema, candidatePacket).length;
+            if (candidateSize > MAX_KEYBOARD_PAYLOAD_BYTES) {
+                break;
+            }
+            lastGoodEnd = chunkEnd;
+            chunkEnd += 1;
+        }
+
+        packets.push(buildKeyboardPacket(fullString.slice(chunkStart, lastGoodEnd)));
+        chunkStart = lastGoodEnd;
     }
-    
+
     return packets;
 }
 

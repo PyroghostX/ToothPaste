@@ -1,12 +1,18 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { readFileSync } from 'fs';
+const { version } = JSON.parse(readFileSync('./package.json', 'utf8'));
 
 export default defineConfig({
+  base: '/toothpaste/',
+  define: {
+    __APP_VERSION__: JSON.stringify(version),
+  },
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
       includeAssets: ['favicon.ico', 'ToothPaste.png', 'ToothPaste.svg', 'ToothPaste.glb', 'ToothPaste_GLB.glb'],
       manifest: {
         name: 'ToothPaste Copy-Paste Web Application',
@@ -17,8 +23,8 @@ export default defineConfig({
         display: 'standalone',
         display_override: ['standalone', 'window-controls-overlay'],
         orientation: 'any',
-        scope: '/',
-        start_url: '/',
+        scope: '/toothpaste/',
+        start_url: '/toothpaste/',
         icons: [
           {
             src: 'ToothPaste.ico',

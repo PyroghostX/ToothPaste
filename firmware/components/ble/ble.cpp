@@ -279,7 +279,11 @@ void decryptSendString(toothpaste_DataPacket* packet, SecureSession* session) {
       // A keyboard text packet (string data)
       case toothpaste_EncryptedData_keyboardPacket_tag:
       {
-        sendString(decrypted.packetData.keyboardPacket.message, decrypted.packetData.keyboardPacket.length, packet->slowMode);
+        if (!sendString(decrypted.packetData.keyboardPacket.message, decrypted.packetData.keyboardPacket.length, packet->slowMode)) {
+          DEBUG_SERIAL_PRINTLN("Keyboard queue full, dropping text chunk.");
+          stateManager->setState(DROP);
+          return;
+        }
         break;
       }
 
@@ -457,6 +461,7 @@ void packetTask(void* params)
         // Handle different types of packets
         if (toothPacket.packetID == toothpaste_DataPacket_PacketID_DATA_PACKET) {
           decryptSendString(&toothPacket, session);
+          notifyResponsePacket(toothpaste_ResponsePacket_ResponseType_KEEPALIVE, nullptr, 0);
         }
         else if (toothPacket.packetID == toothpaste_DataPacket_PacketID_AUTH_PACKET) {
           if (stateManager->getState() == PAIRING) {
