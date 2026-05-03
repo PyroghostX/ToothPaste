@@ -18,7 +18,7 @@ export const keyboardHandler = {
     async sendKeyboardString(input, sendEncrypted, chunkDelayMs = 0, slowMode = false) {
         const packets = createKeyboardStream(input);
         for (let i = 0; i < packets.length; i++) {
-            await sendEncrypted(packets[i], 0, slowMode, true);
+            await sendEncrypted(packets[i], 0, slowMode, false);
             if (chunkDelayMs > 0 && i < packets.length - 1) {
                 await new Promise(r => setTimeout(r, chunkDelayMs));
             }

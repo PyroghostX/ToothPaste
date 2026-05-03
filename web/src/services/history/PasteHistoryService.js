@@ -20,7 +20,11 @@ export async function listHistory() {
     if (!EncryptedStorage.isUnlocked()) return [];
     try {
         const index = await EncryptedStorage.loadBase64(HISTORY_CLIENT_ID, HISTORY_INDEX_KEY);
-        return index || [];
+        return (index || []).map((entry, index) => ({
+            ...entry,
+            appendKey: entry.appendKey || '',
+            pinOrder: entry.pinned ? (entry.pinOrder ?? index) : undefined,
+        }));
     } catch (error) {
         console.error('[PasteHistoryService] Error listing history:', error);
         return [];
@@ -45,27 +49,34 @@ export async function addToHistory(text) {
             ? text.substring(0, MAX_TEXT_LENGTH)
             : text;
 
-        // If this text already exists, move it to the top (preserve pin state)
+        // If this text already exists, move it to the top unless it is pinned.
         const existing = index.find(e => e.text === storedText);
-        const withoutDupe = index.filter(e => e.text !== storedText);
+        if (existing?.pinned) {
+            const updatedIndex = index.map(e => e.id === existing.id
+                ? { ...e, text: storedText, truncated: text.length > MAX_TEXT_LENGTH }
+                : e
+            );
+            await EncryptedStorage.saveBase64(HISTORY_CLIENT_ID, HISTORY_INDEX_KEY, updatedIndex);
+            return updatedIndex.find(e => e.id === existing.id) || null;
+        }
 
         const entry = existing
-            ? { ...existing, createdAt: now }
+            ? { ...existing, createdAt: now, truncated: text.length > MAX_TEXT_LENGTH }
             : {
                 id: `h-${now}-${Math.random().toString(36).substr(2, 6)}`,
                 text: storedText,
                 truncated: text.length > MAX_TEXT_LENGTH,
                 createdAt: now,
                 pinned: false,
+                appendKey: '',
             };
 
-        // Pinned entries stay, unpinned entries are trimmed to MAX_HISTORY_ITEMS
+        // Pinned entries keep their saved order. Unpinned entries are trimmed to MAX_HISTORY_ITEMS.
+        const withoutDupe = index.filter(e => e.text !== storedText);
         const pinned = withoutDupe.filter(e => e.pinned);
         const unpinned = withoutDupe.filter(e => !e.pinned);
-        const trimmedUnpinned = (entry.pinned ? unpinned : [entry, ...unpinned]).slice(0, MAX_HISTORY_ITEMS - pinned.length);
-        const newIndex = entry.pinned
-            ? [...pinned.filter(e => e.id !== entry.id), entry, ...trimmedUnpinned]
-            : [...pinned, ...trimmedUnpinned];
+        const trimmedUnpinned = [entry, ...unpinned].slice(0, MAX_HISTORY_ITEMS - pinned.length);
+        const newIndex = [...pinned, ...trimmedUnpinned];
 
         await EncryptedStorage.saveBase64(HISTORY_CLIENT_ID, HISTORY_INDEX_KEY, newIndex);
         return entry;
@@ -100,10 +111,15 @@ export async function togglePin(id) {
     try {
         const index = await listHistory();
         let newPinned = false;
+        const maxPinOrder = index
+            .filter(e => e.pinned)
+            .reduce((max, entry) => Math.max(max, entry.pinOrder ?? 0), -1);
         const updated = index.map(e => {
             if (e.id === id) {
                 newPinned = !e.pinned;
-                return { ...e, pinned: newPinned };
+                return newPinned
+                    ? { ...e, pinned: true, pinOrder: maxPinOrder + 1 }
+                    : { ...e, pinned: false, pinOrder: undefined };
             }
             return e;
         });
@@ -112,6 +128,44 @@ export async function togglePin(id) {
     } catch (error) {
         console.error('[PasteHistoryService] Error toggling pin:', error);
         return false;
+    }
+}
+
+/**
+ * Reorder pinned entries. Unpinned entries are preserved.
+ * @param {string[]} orderedPinnedIds
+ */
+export async function reorderPinned(orderedPinnedIds) {
+    if (!EncryptedStorage.isUnlocked()) return;
+    try {
+        const index = await listHistory();
+        const orderById = new Map(orderedPinnedIds.map((id, order) => [id, order]));
+        const updated = index.map(e => e.pinned && orderById.has(e.id)
+            ? { ...e, pinOrder: orderById.get(e.id) }
+            : e
+        );
+        await EncryptedStorage.saveBase64(HISTORY_CLIENT_ID, HISTORY_INDEX_KEY, updated);
+    } catch (error) {
+        console.error('[PasteHistoryService] Error reordering pinned entries:', error);
+    }
+}
+
+/**
+ * Save the append key preference for a history entry.
+ * @param {string} id
+ * @param {string} appendKey
+ */
+export async function updateAppendKey(id, appendKey) {
+    if (!EncryptedStorage.isUnlocked()) return;
+    try {
+        const index = await listHistory();
+        const updated = index.map(e => e.id === id
+            ? { ...e, appendKey: appendKey || '' }
+            : e
+        );
+        await EncryptedStorage.saveBase64(HISTORY_CLIENT_ID, HISTORY_INDEX_KEY, updated);
+    } catch (error) {
+        console.error('[PasteHistoryService] Error updating append key:', error);
     }
 }
 

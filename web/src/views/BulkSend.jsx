@@ -23,6 +23,11 @@ const SPEED_OPTIONS = [
 ];
 
 const SPEED_STORAGE_KEY = 'toothpaste-speed';
+const APPEND_KEY_TEXT = {
+    Tab: '\t',
+    TabTab: '\t\t',
+    Enter: '\n',
+};
 
 function loadSavedSpeed() {
     const saved = localStorage.getItem(SPEED_STORAGE_KEY);
@@ -62,10 +67,8 @@ export default function BulkSend() {
     // Send from history and stay on history tab
     const handleResend = useCallback(async (text, appendKey = '') => {
         try {
-            await keyboardHandler.sendKeyboardString(text, sendEncrypted, speed.chunkDelayMs, speed.slowMode);
-            if (appendKey) {
-                keyboardHandler.sendSpecialKey(appendKey, [], sendEncrypted);
-            }
+            const textToSend = `${text}${APPEND_KEY_TEXT[appendKey] ?? ''}`;
+            await keyboardHandler.sendKeyboardString(textToSend, sendEncrypted, speed.chunkDelayMs, speed.slowMode);
             await addToHistory(text);
             setHistoryRefreshKey(key => key + 1);
         } catch (error) {
